@@ -3,17 +3,19 @@ import librosa
 import ruptures as rpt
 
 
-def find_crossfade_via_ruptures(mp3_path, penalty=10):
+def find_crossfade_via_ruptures(mp3_path, penalty=10, min_segment_sec=3):
     print(f"Loading {mp3_path}...")
+    hop_length = 1024
     # Load audio (downsample to 22050Hz for standard audio feature mapping)
-    y, sr = librosa.load(mp3_path, sr=22050)
+    # y, sr = librosa.load(mp3_path, sr=22050)
+    y, sr = librosa.load(mp3_path)
 
     print("Extracting multivariate musical features...")
     # 1. Extract Chroma Features (captures harmonic/chord distributions)
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=512)
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=hop_length)
 
     # 2. Extract MFCCs (captures timbral texture)
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=512)
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
 
     # Combine features into a single matrix and transpose it for ruptures
     # Shape: (Number of Frames, Number of Features)
@@ -22,7 +24,8 @@ def find_crossfade_via_ruptures(mp3_path, penalty=10):
     print("Running Change-Point Detection (Pelt Algorithm)...")
     # We use a Linear Cost Function (cost_rbf or cost_linear)
     # to evaluate changes in the mean/variance of the combined feature stream
-    algo = rpt.KernelCPD(kernel="rbf").fit(features)
+    min_frames = int((min_segment_sec * sr) / hop_length)
+    algo = rpt.KernelCPD(kernel="cosine", min_size=min_frames).fit(features)
 
     # The 'pen' (penalty) parameter controls the sensitivity.
     # Lower penalty = finds more splits; Higher penalty = finds only major song changes.
@@ -30,7 +33,7 @@ def find_crossfade_via_ruptures(mp3_path, penalty=10):
 
     # Convert the resulting frame indices back into exact seconds
     detected_timestamps = librosa.frames_to_time(
-        result_frames[:-1], sr=sr, hop_length=512)
+        result_frames[:-1], sr=sr, hop_length=hop_length)
 
     print("/n--- Structural Change Points Found ---")
     for idx, timestamp in enumerate(detected_timestamps):
@@ -48,7 +51,7 @@ def find_crossfade_via_ruptures(mp3_path, penalty=10):
 # Catches multiple transitions at 6s mark, 28s mark, 52s mark, 61s mark
 # splits = find_crossfade_via_ruptures("D:/Intrest/radio_intercept/2026-09-05_23-30-43_radio_sample.mp3", penalty=25)
 # boundaries at 23s and 95s caught correctly
-# splits = find_crossfade_via_ruptures("D:/Intrest/radio_intercept/2026-09-05_23-27-39_radio_sample.mp3", penalty=25)
+splits = find_crossfade_via_ruptures("D:/Intrest/radio_intercept/2026-09-05_23-27-39_radio_sample.mp3", penalty=25)
 # Finds too many boundaries which aren't song end boundaries.
-splits = find_crossfade_via_ruptures(
-    "D:/Intrest/radio_intercept/2026-09-05_23-24-00_radio_sample.mp3", penalty=25)
+# splits = find_crossfade_via_ruptures(
+#     "D:/Intrest/radio_intercept/2026-09-05_23-24-00_radio_sample.mp3", penalty=25)
