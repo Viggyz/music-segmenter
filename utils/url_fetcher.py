@@ -1,0 +1,7 @@
+class UrlFetcher:
+    def __init__(self):
+        ...
+
+    def fetch_urls(self):
+        ...
+        
