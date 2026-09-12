@@ -95,7 +95,8 @@ class StreamProcesser:
         await self._create_outfile()
 
         retry_delay = 0  # Start with 0ms immediate retryF
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
             while True: # break once we process 5 files
                 try:
                     logging.info("[Stream %s] Connecting to %s...",

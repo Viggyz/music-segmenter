@@ -4,6 +4,8 @@ import socket
 import aiohttp
 import logging
 
+# Create custom SSL context pointing to certifi CA bundle
+
 from .url_fetcher import UrlFetcher
 
 ALLOWLISTED_STATIONS = [

@@ -120,7 +120,7 @@ ALLOWLISTED_STATIONS = [
     "Fm Rainbow Delhi",
     "radioBollyFM",
     ]
-pprint.pp([station['codec'] for station in stations[:50] if station['name'] in ALLOWLISTED_STATIONS])
+pprint.pp([station for station in stations[:50] if station['name'] in ALLOWLISTED_STATIONS])
 # pprint.pp(stations[:2])
 
 # we care about codec + url_resolved.

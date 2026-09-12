@@ -34,12 +34,10 @@ class RuptureSegmenter(Segmenter):
         min_segment_sec=3
         penalty=25
         # Load audio (downsample to 22050Hz for standard audio feature mapping)
-        y, sr = librosa.load(input_file, sr=22050)
+        y, sr = librosa.load(input_file)
         
         # 1. Extract Chroma Features (captures harmonic/chord distributions)
         chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=hop_length)
-        
-        # 2. Extract MFCCs (captures timbral texture)
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
         
         # Combine features into a single matrix and transpose it for ruptures
