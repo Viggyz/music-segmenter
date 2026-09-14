@@ -38,13 +38,12 @@ def setup_process_logging(process_identifier):
     # Disable verbose Numba internal logging
     logging.getLogger("numba").setLevel(logging.WARNING)
 
-async def async_producer(queue, data_folder, segment_folder):
-    url_fetcher = RadioBrowserUrlFetcher()
-    urls = {stream_id: url async for stream_id, url in url_fetcher.fetch_urls()}
+async def fetch_urls(url_fetcher, urls):
+    """ Generates list of urls given a url fetcher """
+    async for stream_id, url in url_fetcher.fetch_urls():
+        urls[stream_id] = url
 
-    for key, _ in urls.items():
-        await make_folder(f"{data_folder}/radio_{key}")
-        await make_folder(f"{segment_folder}/radio_{key}")
+async def async_producer(queue, urls, data_folder):
     producers = [asyncio.create_task(
             task) for task in StreamProcesser.from_stream(urls, data_folder, queue)]
 
@@ -54,10 +53,10 @@ async def async_producer(queue, data_folder, segment_folder):
     for _ in range(3):
         queue.put(None)
 
-def producer_worker(queue, data_folder, segment_folder):
+def producer_worker(queue, urls, data_folder):
     setup_process_logging("producer")
     logging.info("Producer process initialized")
-    asyncio.run(async_producer(queue, data_folder, segment_folder))
+    asyncio.run(async_producer(queue, urls, data_folder))
 
 def consumer_worker(queue, data_folder, segment_folder, worker_id):
     setup_process_logging(f"consumer_{worker_id}")
@@ -77,7 +76,14 @@ if __name__ == "__main__":
     make_folder_sync(DATA_FOLDER)
     make_folder_sync(SEGMENT_FOLDER)
 
-    producer_process = Process(target=producer_worker, args=(queue, DATA_FOLDER, SEGMENT_FOLDER))
+    url_fetcher = RadioBrowserUrlFetcher()
+    urls = {}
+    asyncio.run(fetch_urls(url_fetcher, urls))
+    for key, _ in urls.items():
+        make_folder_sync(f"{DATA_FOLDER}/radio_{key}")
+        make_folder_sync(f"{SEGMENT_FOLDER}/radio_{key}")
+
+    producer_process = Process(target=producer_worker, args=(queue, urls, DATA_FOLDER))
     producer_process.start()
 
     consumer_processes = []
