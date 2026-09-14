@@ -2,6 +2,7 @@ import collections
 from datetime import datetime
 import hashlib
 import logging
+import multiprocessing
 from pathlib import Path
 
 import aiohttp
@@ -52,7 +53,7 @@ class StreamProcesser:
     async def _close_outfile(self):
         self._out_file.close()
         logging.info('Closing %s and Adding queue', self._out_file_name)
-        await self._queue.put((self.stream_id, self._out_file_name))
+        self._queue.put((self.stream_id, self._out_file_name))
         self._file_count += 1
 
     def _is_frame_processed(self, frame_bytes):
@@ -160,7 +161,7 @@ class StreamProcesser:
                     await asyncio.sleep(retry_delay)
 
     @classmethod
-    def from_stream(cls, urls: dict[str, str], data_folder: str, queue: asyncio.Queue):
+    def from_stream(cls, urls: dict[str, str], data_folder: str, queue: multiprocessing.Queue):
         """Start multiple streams"""
         for key, url in urls.items():
             yield cls(url, key, data_folder, queue).record_mp3_stream()

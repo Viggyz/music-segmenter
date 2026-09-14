@@ -69,7 +69,7 @@ class RuptureSegmenter(Segmenter):
 
             # Concatenate previous tail audio with the first segment of the new partition
             if idx == 0 and latest_file:
-                print(f"Stitching {os.path.basename(latest_file)} + Segment 01...")
+                logging.info(f"Stitching {os.path.basename(latest_file)} + Segment 01...")
                 prev_audio, _ = librosa.load(latest_file, sr=sr)
                 segment_audio = np.concatenate([prev_audio, segment_audio])
 

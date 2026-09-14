@@ -2,57 +2,92 @@ import asyncio
 
 import logging
 import sys
+import os
+from multiprocessing import Process, Queue
 
 from utils.stream_processing import StreamProcesser
-from utils.file import make_folder
+from utils.file import make_folder, make_folder_sync
 from utils.rupture_segmenter import RuptureSegmenter
 from utils.radio_browser_url_fetcher import RadioBrowserUrlFetcher
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    handlers=[
-                        logging.StreamHandler(sys.stdout)
-                    ])
+LOG_DIR = "logs"
 
+def setup_process_logging(process_identifier):
+    """
+    Configures logging handlers (Console + File) unique to the calling process.
+    """
+    os.makedirs(LOG_DIR, exist_ok=True)
+    log_filename = os.path.join(LOG_DIR, f"{process_identifier}.log")
+    
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()
+    
+    formatter = logging.Formatter(
+        '%(asctime)s - [%(processName)s (PID:%(process)d)] - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    file_handler = logging.FileHandler(log_filename, mode='a')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
-async def main():
-    # urls = {
-    #     # "93.5": "https://stream-175.surfernetwork.com/9phrkb1e3v8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiI5cGhya2IxZTN2OHV2IiwiaG9zdCI6InN0cmVhbS0xNzUuc3VyZmVybmV0d29yay5jb20iLCJydHRsIjo1LCJqdGkiOiJhUm5UX2JTVFNFeTYydzFSaVdlWU93IiwiaWF0IjoxNzg4NzgzMjk1LCJleHAiOjE3ODg3ODMzNTV9.EqcQk40GQZqHiCiblEfAWw01o-haGuVF6vrM0BBTrok",
-    #     "98.3": "https://stream-284.surfernetwork.com/wgaznsmt92quv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ3Z2F6bnNtdDkycXV2IiwiaG9zdCI6InN0cmVhbS0yODQuc3VyZmVybmV0d29yay5jb20iLCJydHRsIjo1LCJqdGkiOiJUNkQ1aUppNVNYLUdfd0RnTmZ4QTNBIiwiaWF0IjoxNzg4NzgzMzI4LCJleHAiOjE3ODg3ODMzODh9.dkgi3QzfkUhy5md7fVlk-asHJznvFOfMHDSJJLcuovY",
-    #     "92.7": "https://stream-280.surfernetwork.com/dbstwo3dvhhtv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJkYnN0d28zZHZoaHR2IiwiaG9zdCI6InN0cmVhbS0yODAuc3VyZmVybmV0d29yay5jb20iLCJydHRsIjo1LCJqdGkiOiJ2SkVKajkzQlNNQzBWeHJ1LVlxejR3IiwiaWF0IjoxNzg4NzgzMzQ2LCJleHAiOjE3ODg3ODM0MDZ9.pJAxrf58sJYhzIVBtIM8FxPlfJ1ai0A212HAtOobEFo",
-    #     "old_hits": "https://stream-287.surfernetwork.com/a2gyqzwpwfeuv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJhMmd5cXp3cHdmZXV2IiwiaG9zdCI6InN0cmVhbS0yODcuc3VyZmVybmV0d29yay5jb20iLCJydHRsIjo1LCJqdGkiOiI4TFFkMkRXN1FUQ3NjSHVieVhsX0VRIiwiaWF0IjoxNzg5MTM4ODk3LCJleHAiOjE3ODkxMzg5NTd9.a_WgF6HlnN3ddqjrqf6lfndLsc6bGCLhLdzEPTLJ460",
-    #     # Add up to 10 HTTP MP3 URLs here
-    # }
+    # Disable verbose Numba internal logging
+    logging.getLogger("numba").setLevel(logging.WARNING)
 
+async def async_producer(queue, data_folder, segment_folder):
     url_fetcher = RadioBrowserUrlFetcher()
     urls = {stream_id: url async for stream_id, url in url_fetcher.fetch_urls()}
+
+    for key, _ in urls.items():
+        await make_folder(f"{data_folder}/radio_{key}")
+        await make_folder(f"{segment_folder}/radio_{key}")
+    producers = [asyncio.create_task(
+            task) for task in StreamProcesser.from_stream(urls, data_folder, queue)]
+
+    await asyncio.gather(*producers)
+
+    # send poison pills to safely shutdown consumer processes.
+    for _ in range(3):
+        queue.put(None)
+
+def producer_worker(queue, data_folder, segment_folder):
+    setup_process_logging("producer")
+    logging.info("Producer process initialized")
+    asyncio.run(async_producer(queue, data_folder, segment_folder))
+
+def consumer_worker(queue, data_folder, segment_folder, worker_id):
+    setup_process_logging(f"consumer_{worker_id}")
+    logging.info(f"Consumer worker {worker_id} initialized")
+    RuptureSegmenter.create_and_return_segmenter(data_folder, segment_folder, queue)
+
+if __name__ == "__main__":
+    setup_process_logging("main")
+    logging.info("Starting main process orchestration")
+
+    # keep a buffer of 20
+    queue = Queue(maxsize=20)
 
     DATA_FOLDER = "streams"
     SEGMENT_FOLDER = "segments"
 
-    await make_folder(DATA_FOLDER)
-    await make_folder(SEGMENT_FOLDER)
-    for key, _ in urls.items():
-        await make_folder(f"{DATA_FOLDER}/radio_{key}")
-        await make_folder(f"{SEGMENT_FOLDER}/radio_{key}")
+    make_folder_sync(DATA_FOLDER)
+    make_folder_sync(SEGMENT_FOLDER)
 
-    queue = asyncio.Queue(maxsize=10)
+    producer_process = Process(target=producer_worker, args=(queue, DATA_FOLDER, SEGMENT_FOLDER))
+    producer_process.start()
 
-    consumers = [asyncio.create_task(RuptureSegmenter.create_and_return_segmenter(
-        DATA_FOLDER, SEGMENT_FOLDER, queue)) for _ in range(len(urls.keys()))]
+    consumer_processes = []
+    for i in range(3):
+        p = Process(target=consumer_worker, name=f"ConsumerProcess-{i}", args=(queue, DATA_FOLDER, SEGMENT_FOLDER, i))
+        consumer_processes.append(p)
+        p.start()
 
-    producers = [asyncio.create_task(
-        task) for task in StreamProcesser.from_stream(urls, DATA_FOLDER, queue)]
-    
-    await asyncio.gather(*producers)
+    producer_process.join()
+    for p in consumer_processes:
+        p.join()
 
-
-    await queue.join()
-    logging.warning("Queue joined")
-
-    for c in consumers:
-        logging.warning("Closing consumer")
-        c.cancel()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    logging.warning("All processes joined and closed.")
