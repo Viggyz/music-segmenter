@@ -23,8 +23,9 @@ class Segmenter:
             except Exception as e:
                 logging.error("❌ [Consumer %s] Error processing %s: %s", stream_id, file_name, e)
             # we no longer need to call task_done to say that queue is proccesed.
-            # finally:
-                # self._queue.task_done()
+            finally:
+                if hasattr(self._queue, "task_done") and callable(getattr(self._queue, "task_done")):
+                    self._queue.task_done()
 
     @classmethod
     def create_and_return_segmenter(cls, data_folder, segment_folder, queue):
