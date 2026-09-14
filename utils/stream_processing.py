@@ -20,7 +20,7 @@ class StreamProcesser:
         # Persistent state preserved across disconnects
         self._buffer = bytearray()
         self._frame_count = 0
-        self._file_count = 0 
+        self._file_count = 0
         self._out_file = None
         self._out_file_name = None
 
@@ -98,7 +98,7 @@ class StreamProcesser:
         retry_delay = 0  # Start with 0ms immediate retryF
         connector = aiohttp.TCPConnector(ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
-            while True: # break once we process 5 files
+            while True:  # break once we process 5 files
                 try:
                     logging.info("[Stream %s] Connecting to %s...",
                                  self.stream_id, self.url)

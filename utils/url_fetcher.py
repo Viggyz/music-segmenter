@@ -4,4 +4,3 @@ class UrlFetcher:
 
     def fetch_urls(self):
         ...
-        

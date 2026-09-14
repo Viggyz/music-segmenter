@@ -20,9 +20,10 @@ ALLOWLISTED_STATIONS = [
     "Bollywood 2010's",
     "Fm Rainbow Delhi",
     "radioBollyFM",
-    ]
+]
 
 LOG_PREFIX = "[URL FETCHER]: "
+
 
 class RadioBrowserUrlFetcher:
     async def _get_radiobrowser_base_urls(self):
@@ -48,7 +49,7 @@ class RadioBrowserUrlFetcher:
 
         hosts.sort()
         return [f"https://{host}" for host in hosts]
-    
+
     async def _download_uri(self, session: aiohttp.ClientSession, uri: str, param: dict | None):
         """
         Download JSON data asynchronously with headers set.
@@ -67,7 +68,7 @@ class RadioBrowserUrlFetcher:
         async with session.post(uri, json=param, headers=headers) as response:
             response.raise_for_status()
             return await response.json()
-    
+
     async def _download_radiobrowser(self, session: aiohttp.ClientSession, path: str, param: dict | None):
         """
         Download file with relative url from a random api server asynchronously.
@@ -82,19 +83,23 @@ class RadioBrowserUrlFetcher:
             try:
                 return await self._download_uri(session, uri, param)
             except Exception as e:
-                logging.warning(f"{LOG_PREFIX}Unable to download from api url: {uri}", e)
+                logging.warning(
+                    f"{LOG_PREFIX}Unable to download from api url: {uri}", e)
 
         return {}
 
     async def fetch_urls(self):
         async with aiohttp.ClientSession() as session:
-            stations = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes","reverse": "true", "hide_broken": "true", "countrycode": "IN"})
+            stations = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes", "reverse": "true", "hide_broken": "true", "countrycode": "IN"})
             for station in stations:
                 if station['name'] in ALLOWLISTED_STATIONS:
                     if station['codec'] != 'MP3':
-                        logging.warning("%sInvalid codec %s for station %s", LOG_PREFIX, station['codec'], station['name'])
+                        logging.warning("%sInvalid codec %s for station %s",
+                                        LOG_PREFIX, station['codec'], station['name'])
                         continue
-                    logging.info("%s emitting station %s:%s", LOG_PREFIX, station['name'], station['url_resolved'])
+                    logging.info("%s emitting station %s:%s", LOG_PREFIX,
+                                 station['name'], station['url_resolved'])
                     yield station['name'], station['url']
+
 
 __all__ = ["RadioBrowserUrlFetcher"]

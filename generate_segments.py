@@ -11,33 +11,36 @@ from utils.rupture_segmenter import RuptureSegmenter
 LOG_DIR = "logs"
 NUM_WORKERS = 3
 
+
 def setup_process_logging(process_identifier):
     os.makedirs(LOG_DIR, exist_ok=True)
     log_filename = os.path.join(LOG_DIR, f"{process_identifier}.log")
-    
+
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
-    
+
     formatter = logging.Formatter(
         '%(asctime)s - [%(processName)s (PID:%(process)d)] - %(name)s - %(levelname)s - %(message)s'
     )
-    
+
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-    
+
     file_handler = logging.FileHandler(log_filename, mode='a')
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
     logging.getLogger("numba").disabled = True
 
+
 class AckQueueWrapper:
     """
     Wraps work_queue for RuptureSegmenter. Automatically sends an 
     ACK back to producer via ack_queue after each item is processed.
     """
+
     def __init__(self, work_queue, ack_queue):
         self.work_queue = work_queue
         self.ack_queue = ack_queue
@@ -63,6 +66,7 @@ class AckQueueWrapper:
             self.ack_queue.put(self.current_stream_id)
             self.current_stream_id = None
 
+
 def file_producer_worker(work_queue, ack_queue, data_folder):
     setup_process_logging("file_producer")
     logging.info("File producer initialized with ACK synchronization.")
@@ -80,8 +84,8 @@ def file_producer_worker(work_queue, ack_queue, data_folder):
         if os.path.isdir(radio_dir) and entry.startswith("radio_"):
             stream_id = entry.replace("radio_", "", 1)
             files = sorted([
-                os.path.join(radio_dir, f) 
-                for f in os.listdir(radio_dir) 
+                os.path.join(radio_dir, f)
+                for f in os.listdir(radio_dir)
                 if not f.startswith('.')
             ])
             if files:
@@ -92,7 +96,8 @@ def file_producer_worker(work_queue, ack_queue, data_folder):
     # 2. Producer loop with backpressure per stream_id
     while stream_files or in_flight_streams:
         # Enqueue available files for streams that are NOT currently in-flight
-        available_streams = [s for s in list(stream_files.keys()) if s not in in_flight_streams]
+        available_streams = [s for s in list(
+            stream_files.keys()) if s not in in_flight_streams]
 
         for stream_id in available_streams:
             next_file = stream_files[stream_id].pop(0)
@@ -107,7 +112,8 @@ def file_producer_worker(work_queue, ack_queue, data_folder):
         if in_flight_streams:
             completed_stream_id = ack_queue.get()
             in_flight_streams.remove(completed_stream_id)
-            logging.debug(f"ACK received for stream_id '{completed_stream_id}'")
+            logging.debug(
+                f"ACK received for stream_id '{completed_stream_id}'")
 
     # Send poison pills to shut down consumers
     for _ in range(NUM_WORKERS):
@@ -115,16 +121,19 @@ def file_producer_worker(work_queue, ack_queue, data_folder):
 
     logging.info("Completed queueing all streams with verified ACK ordering.")
 
+
 def consumer_worker(work_queue, ack_queue, data_folder, segment_folder, worker_id):
     setup_process_logging(f"consumer_{worker_id}")
     logging.info(f"Consumer worker {worker_id} initialized")
-    
+
     wrapped_queue = AckQueueWrapper(work_queue, ack_queue)
 
-    RuptureSegmenter.create_and_return_segmenter(data_folder, segment_folder, wrapped_queue)
+    RuptureSegmenter.create_and_return_segmenter(
+        data_folder, segment_folder, wrapped_queue)
     # Flush final ACK upon exit
     if wrapped_queue.current_stream_id is not None:
         ack_queue.put(wrapped_queue.current_stream_id)
+
 
 if __name__ == "__main__":
     setup_process_logging("replay_main")
@@ -147,8 +156,8 @@ if __name__ == "__main__":
 
     # 1. Producer
     producer_process = Process(
-        target=file_producer_worker, 
-        name="FileProducerProcess", 
+        target=file_producer_worker,
+        name="FileProducerProcess",
         args=(work_queue, ack_queue, DATA_FOLDER)
     )
     producer_process.start()
@@ -157,8 +166,8 @@ if __name__ == "__main__":
     consumer_processes = []
     for i in range(1, NUM_WORKERS + 1):
         p = Process(
-            target=consumer_worker, 
-            name=f"ConsumerProcess-{i}", 
+            target=consumer_worker,
+            name=f"ConsumerProcess-{i}",
             args=(work_queue, ack_queue, DATA_FOLDER, SEGMENT_FOLDER, i)
         )
         consumer_processes.append(p)
@@ -168,4 +177,5 @@ if __name__ == "__main__":
     for p in consumer_processes:
         p.join()
 
-    logging.warning("All replay tasks finished successfully with strict per-stream order")
+    logging.warning(
+        "All replay tasks finished successfully with strict per-stream order")
