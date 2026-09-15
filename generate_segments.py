@@ -7,6 +7,7 @@ import sys
 from multiprocessing import Process, Queue
 
 from utils.rupture_segmenter import RuptureSegmenter
+from utils.laplace_segmenter import LaplacianSegmenter
 
 LOG_DIR = "logs"
 NUM_WORKERS = 3

@@ -33,9 +33,9 @@ class RuptureSegmenter(Segmenter):
                 f"{SEGMENTER_PREFIX} FNo previous segments found in output directory.")
 
         logging.info(f"{SEGMENTER_PREFIX} Loading {input_file}...")
-        hop_length = 512
+        hop_length = 2048
         min_segment_sec = 3
-        penalty = 25
+        penalty = 15
         # Load audio (downsample to 22050Hz for standard audio feature mapping)
         y, sr = librosa.load(input_file)
 
@@ -50,13 +50,23 @@ class RuptureSegmenter(Segmenter):
 
         # We use a Cosine Cost Function
         # to evaluate changes in the mean/variance of the combined feature stream
-        # min_frames = int((min_segment_sec * sr) / hop_length)
-        # algo = rpt.KernelCPD(kernel="cosine", min_size=min_frames).fit(features)
-        algo = rpt.KernelCPD(kernel="cosine").fit(features)
+        n_frames = len(features)
 
-        # The 'pen' (penalty) parameter controls the sensitivity.
-        # Lower penalty = finds more splits; Higher penalty = finds only major song changes.
-        result_frames = algo.predict(pen=penalty)
+        # Calculate target min_frames
+        target_min_frames = int((min_segment_sec * sr) / hop_length)
+
+        # Guard against short files: Ensure min_frames is at least 2 and at most half the total frames
+        min_frames = max(2, min(target_min_frames, n_frames // 2))
+
+        # Check if file is long enough to support segmentation
+        if n_frames < 4 or target_min_frames >= n_frames // 2:
+            logging.warning(
+                f"{SEGMENTER_PREFIX} Audio length too short ({len(y)/sr:.1f}s) for requested min_segment_sec ({min_segment_sec}s). Treating as single segment."
+            )
+            result_frames = [n_frames]
+        else:
+            algo = rpt.KernelCPD(kernel="cosine", min_size=min_frames).fit(features)
+            result_frames = algo.predict(pen=penalty)
 
         # Convert the resulting frames directly to audio sample indices
         boundary_samples = librosa.frames_to_samples(
