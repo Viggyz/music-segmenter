@@ -94,15 +94,15 @@ if __name__ == "__main__":
         target=producer_worker, args=(queue, urls, DATA_FOLDER))
     producer_process.start()
 
-    consumer_processes = []
-    for i in range(3):
-        p = Process(target=consumer_worker,
-                    name=f"ConsumerProcess-{i}", args=(queue, DATA_FOLDER, SEGMENT_FOLDER, i))
-        consumer_processes.append(p)
-        p.start()
+    # consumer_processes = []
+    # for i in range(3):
+    #     p = Process(target=consumer_worker,
+    #                 name=f"ConsumerProcess-{i}", args=(queue, DATA_FOLDER, SEGMENT_FOLDER, i))
+    #     consumer_processes.append(p)
+    #     p.start()
 
     producer_process.join()
-    for p in consumer_processes:
-        p.join()
+    # for p in consumer_processes:
+    #     p.join()
 
     logging.warning("All processes joined and closed.")
