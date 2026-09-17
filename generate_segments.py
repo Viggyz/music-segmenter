@@ -8,6 +8,7 @@ from multiprocessing import Process, Queue
 
 from utils.rupture_segmenter import RuptureSegmenter
 from utils.laplace_segmenter import LaplacianSegmenter
+from utils.ensemble_segmenter import EnsembleSegmenter
 
 LOG_DIR = "logs"
 NUM_WORKERS = 3
@@ -34,7 +35,7 @@ def setup_process_logging(process_identifier):
     logger.addHandler(file_handler)
 
     logging.getLogger("numba").disabled = True
-
+    logging.getLogger("numba").setLevel(logging.WARNING)
 
 class AckQueueWrapper:
     """
@@ -129,7 +130,7 @@ def consumer_worker(work_queue, ack_queue, data_folder, segment_folder, worker_i
 
     wrapped_queue = AckQueueWrapper(work_queue, ack_queue)
 
-    RuptureSegmenter.create_and_return_segmenter(
+    EnsembleSegmenter.create_and_return_segmenter(
         data_folder, segment_folder, wrapped_queue)
     # Flush final ACK upon exit
     if wrapped_queue.current_stream_id is not None:
