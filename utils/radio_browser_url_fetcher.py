@@ -21,7 +21,6 @@ ALLOWLISTED_STATIONS = [
 ]
 LOOKUP_STATIONS = [
     "MANGORADIO",
-    "Dance Wave!",
     "Free FM Top 100 India",
     "102.7 KIIS FM",
     "LOS 40 Principales España",
@@ -29,11 +28,9 @@ LOOKUP_STATIONS = [
     "Hit Radio FFH",
     "Hits 1 Ibiza",
     "SWR3",
-    "Europe 2",
     "Heart London 106.2 [MP3]",
     "Capital FM London",
     "Rock FM",
-    "NIUS",
     "Radio Caroline",
 ]
 

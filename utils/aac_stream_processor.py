@@ -165,10 +165,10 @@ class AACStreamProcessor:
                     await self._convert_aac_file(self._temp_aac_path, self._final_out_path)
                     logging.info("[Stream %s] Saved: %s", self.stream_id, self._final_out_path.name)
                     
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None, self._queue.put, (self.stream_id, self._final_out_path)
-                    )
+                    # loop = asyncio.get_running_loop()
+                    # await loop.run_in_executor(
+                    #     None, self._queue.put, (self.stream_id, self._final_out_path)
+                    # ) 
                 except Exception as e:
                     logging.error("[Stream %s] Error converting file: %s", self.stream_id, e)
 

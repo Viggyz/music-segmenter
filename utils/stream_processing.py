@@ -109,11 +109,11 @@ class StreamProcesser:
             self._out_file.close()
             logging.info("[Stream %s] Closed file: %s", self.stream_id, self._out_file_name.name)
             
-            loop = asyncio.get_running_loop()
-            try:
-                await loop.run_in_executor(None, self._queue.put, (self.stream_id, self._out_file_name))
-            except Exception as e:
-                logging.error("[Stream %s] Queue put error: %s", self.stream_id, e)
+            # loop = asyncio.get_running_loop()
+            # try:
+                # await loop.run_in_executor(None, self._queue.put, (self.stream_id, self._out_file_name))
+            # except Exception as e:
+            #     logging.error("[Stream %s] Queue put error: %s", self.stream_id, e)
 
             self._out_file = None
             self._out_file_name = None
