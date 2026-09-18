@@ -6,6 +6,7 @@ import os
 from multiprocessing import Process, Queue
 
 from utils.stream_processing import StreamProcesser
+from utils.aac_stream_processor import AACStreamProcessor
 from utils.file import make_folder
 from utils.rupture_segmenter import RuptureSegmenter
 from utils.radio_browser_url_fetcher import RadioBrowserUrlFetcher
@@ -42,13 +43,19 @@ def setup_process_logging(process_identifier):
 
 async def fetch_urls(url_fetcher, urls):
     """ Generates list of urls given a url fetcher """
-    async for stream_id, url in url_fetcher.fetch_urls():
-        urls[stream_id] = url
+    async for stream_id, url, codec in url_fetcher.fetch_urls():
+        urls[stream_id] = (url, codec)
 
 
 async def async_producer(queue, urls, data_folder):
-    producers = [asyncio.create_task(
-        task) for task in StreamProcesser.from_stream(urls, data_folder, queue)]
+    producers = []
+    for stream_id, (url, codec) in urls.items():
+        if codec == 'MP3':
+            processor = StreamProcesser(url, stream_id, data_folder, queue)
+            producers.append(asyncio.create_task(processor.record_mp3_stream()))
+        elif codec == 'AAC':
+            processor = AACStreamProcessor(url, stream_id, data_folder, queue)
+            producers.append(asyncio.create_task(processor.record_aac_stream()))
 
     await asyncio.gather(*producers)
 

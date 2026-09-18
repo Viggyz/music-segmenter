@@ -105,7 +105,7 @@ def downloadRadiobrowserStationsByName(name):
 # print("------------")
 # print(json.dumps(downloadRadiobrowserStats(), indent=4))
 
-stations = json.loads(downloadRadiobrowser("/json/stations/search", {"order": "votes","reverse": "true", "hide_broken": "true", "countrycode": "IN"}))
+# stations = json.loads(downloadRadiobrowser("/json/stations/search", {"order": "votes","reverse": "true", "hide_broken": "true", "countrycode": "IN"}))
 
 ALLOWLISTED_STATIONS = [
     "Bollywood Gaane Purane",
@@ -120,7 +120,40 @@ ALLOWLISTED_STATIONS = [
     "Fm Rainbow Delhi",
     "radioBollyFM",
     ]
-pprint.pp([station for station in stations[:50] if station['name'] in ALLOWLISTED_STATIONS])
-# pprint.pp(stations[:2])
+LOOKUP_STATIONS = [
+    "MANGORADIO",
+    "Dance Wave!",
+    # "CAPITAL - The UK's No.1 Hit Music Station", # AAC
+    # "Free FM Top 100 India", # AAC
+    "102.7 KIIS FM",
+    "LOS 40 Principales España",
+    # "96.7 KISS FM - KHFI-FM Austin", # AAC
+    "Hit Radio FFH",
+    # "102.7 KIIS FM Los Angeles", # AAC
+    "Hits 1 Ibiza",
+    # "American Top 40", # AAC
+    "Radio Contact",
+    "SWR3",
+    "Europe 2",
+    # "Z100 - New York's #1 Hit Music Station WHTZ", # AAC
+    "Heart London 106.2 [MP3]",
+    "Capital FM London",
+    "Rock FM",
+    "NIUS",
+    "Radio Caroline",
+    "FUN Radio",
+    "Hit FM (UKraine) - 128kb/s"
+]
+stations = []
+for station in LOOKUP_STATIONS:
+    results = json.loads(downloadRadiobrowser("/json/stations/search", {"order": "votes","reverse": "true", "hide_broken": "true", "name": station}))
+    if len(results) == 0:
+        print(f"no results for {station}")
+        continue
+    stations.append(results[0])
+
+# print(stations)
+# pprint.pp([station for station in stations[:50] if station['name'] in ALLOWLISTED_STATIONS])
+pprint.pp([(station['name'], station['codec']) for station in stations[:50]])
 
 # we care about codec + url_resolved.

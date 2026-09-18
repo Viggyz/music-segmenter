@@ -9,21 +9,35 @@ import logging
 from .url_fetcher import UrlFetcher
 
 ALLOWLISTED_STATIONS = [
-    "Bollywood Gaane Purane",
+    # "Bollywood Gaane Purane",
     "Fnf.Fm Hindi",
-    "MY RADIO DJ",
+    # "MY RADIO DJ",
     "Radio BollyFm",
-    "Radio Mirchi Hindi",
-    "MY CLUB REMIX",
+    # "MY CLUB REMIX",
     "Mirchi Top 20",
     "Mirchi Love",
     "Bollywood 2010's",
-    "Fm Rainbow Delhi",
-    "radioBollyFM",
+    "Red Fm" # AAC
+]
+LOOKUP_STATIONS = [
+    "MANGORADIO",
+    "Dance Wave!",
+    "Free FM Top 100 India",
+    "102.7 KIIS FM",
+    "LOS 40 Principales España",
+    "96.7 KISS FM - KHFI-FM Austin",
+    "Hit Radio FFH",
+    "Hits 1 Ibiza",
+    "SWR3",
+    "Europe 2",
+    "Heart London 106.2 [MP3]",
+    "Capital FM London",
+    "Rock FM",
+    "NIUS",
+    "Radio Caroline",
 ]
 
 LOG_PREFIX = "[URL FETCHER]: "
-
 
 class RadioBrowserUrlFetcher:
     async def _get_radiobrowser_base_urls(self):
@@ -93,13 +107,18 @@ class RadioBrowserUrlFetcher:
             stations = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes", "reverse": "true", "hide_broken": "true", "countrycode": "IN"})
             for station in stations:
                 if station['name'] in ALLOWLISTED_STATIONS:
-                    if station['codec'] != 'MP3':
+                    if station['codec'] not in ('MP3', 'AAC'):
                         logging.warning("%sInvalid codec %s for station %s",
                                         LOG_PREFIX, station['codec'], station['name'])
                         continue
                     logging.info("%s emitting station %s:%s", LOG_PREFIX,
                                  station['name'], station['url_resolved'])
-                    yield station['name'], station['url']
-
+                    yield station['name'], station['url'], station['codec']
+            for lookup_name in LOOKUP_STATIONS:
+                results = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes", "reverse": "true", "hide_broken": "true", "name": lookup_name})
+                station = results[0]
+                # if station['codec'] != 'MP3':
+                #     continue
+                yield station['name'], station['url'], station['codec']
 
 __all__ = ["RadioBrowserUrlFetcher"]
