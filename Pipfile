@@ -1,0 +1,22 @@
+[[source]]
+url = "http://airlock-proxy.uplink.goog:999/python/artifact-foundry-prod/ah-3p-staging-python/simple/"
+verify_ssl = false
+name = "pip_conf_index_global"
+
+[packages]
+asyncio = "*"
+librosa = "*"
+ruptures = "*"
+soundfile = "*"
+numpy = "*"
+aiohttp = "*"
+scipy = "*"
+auditok = "*"
+ipykernel = "*"
+
+[dev-packages]
+ipython = "*"
+matplotlib = "*"
+
+[requires]
+python_version = "3.14"
