@@ -13,6 +13,7 @@ aiohttp = "*"
 scipy = "*"
 auditok = "*"
 ipykernel = "*"
+aiofiles = "*"
 
 [dev-packages]
 ipython = "*"
