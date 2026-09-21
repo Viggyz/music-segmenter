@@ -44,9 +44,10 @@ async def stream_icy_metadata(stream_id: str, url: str):
             logging.info(f"Connecting to stream {stream_id} at {url}...")
             
             # Use ClientTimeout to prevent hanging on stalled network requests
-            timeout = aiohttp.ClientTimeout(total=None, connect=10, sock_read=30)
-
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            connector = aiohttp.TCPConnector(ssl=False)
+            timeout = aiohttp.ClientTimeout(total=None, connect=10, sock_read=15)
+            
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 async with session.get(url, headers=headers) as response:
                     # Retrieve ICY metadata byte interval
                     metaint_header = response.headers.get("icy-metaint")
