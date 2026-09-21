@@ -29,64 +29,90 @@ logging.basicConfig(
     ]
 )
 
-async def stream_icy_metadata(stream_id:str, url: str):
+async def stream_icy_metadata(stream_id: str, url: str):
     headers = {
         "Icy-MetaData": "1",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                # Retrieve ICY metadata byte interval
-                metaint_header = response.headers.get("icy-metaint")
+    initial_delay = 2.0
+    max_delay = 60.0
+    retry_delay = initial_delay
 
-                if not metaint_header:
-                    logging.error(f"Error: Stream {stream_id} does not support ICY metadata.")
-                    return
+    while True:
+        try:
+            logging.info(f"Connecting to stream {stream_id} at {url}...")
+            
+            # Use ClientTimeout to prevent hanging on stalled network requests
+            timeout = aiohttp.ClientTimeout(total=None, connect=10, sock_read=30)
 
-                metaint = int(metaint_header)
-                logging.info(f"Connected to stream {stream_id}! Metadata interval: {metaint} bytes\n")
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, headers=headers) as response:
+                    # Retrieve ICY metadata byte interval
+                    metaint_header = response.headers.get("icy-metaint")
 
-                current_song = ""
+                    if not metaint_header:
+                        logging.error(f"Error: Stream {stream_id} does not support ICY metadata.")
+                        # Non-ICY stream won't magically support ICY on retry; retry with long delay
+                        await asyncio.sleep(max_delay)
+                        continue
 
-                while True:
-                    # 1. Read exactly 'metaint' bytes of audio data
-                    try:
-                        audio_chunk = await response.content.readexactly(metaint)
-                    except asyncio.IncompleteReadError:
-                        logging.warn(f"Stream {stream_id} ended unexpectedly.")
-                        break
+                    metaint = int(metaint_header)
+                    logging.info(f"Connected to stream {stream_id}! Metadata interval: {metaint} bytes")
 
-                    # 2. Read 1 byte for metadata length indicator
-                    try:
-                        meta_byte = await response.content.readexactly(1)
-                    except asyncio.IncompleteReadError:
-                        break
+                    # Reset retry delay on successful connection and header retrieval
+                    retry_delay = initial_delay
+                    current_song = ""
 
-                    # Actual metadata length is length_byte * 16
-                    meta_length = ord(meta_byte) * 16
-
-                    if meta_length > 0:
-                        # 3. Read the exact metadata payload
-                        meta_data = await response.content.readexactly(meta_length)
-
-                        # 4. Extract and parse StreamTitle
+                    while True:
+                        # 1. Read exactly 'metaint' bytes of audio data
                         try:
-                            meta_str = meta_data.decode("utf-8", errors="ignore")
+                            audio_chunk = await response.content.readexactly(metaint)
+                        except (asyncio.IncompleteReadError, aiohttp.ClientPayloadError):
+                            logging.warning(f"Stream {stream_id} ended unexpectedly or dropped connection.")
+                            break
 
-                            if "StreamTitle=" in meta_str:
-                                title_part = meta_str.split("StreamTitle=")[1]
-                                song_title = title_part.split(";")[0].strip(" '\"")
-                                if song_title and song_title != current_song:
-                                    current_song = song_title       
-                                    logging.info(f"[NOW PLAYING][{stream_id}] {current_song}")
+                        # 2. Read 1 byte for metadata length indicator
+                        try:
+                            meta_byte = await response.content.readexactly(1)
+                        except (asyncio.IncompleteReadError, aiohttp.ClientPayloadError):
+                            logging.warning(f"Stream {stream_id} disconnected during metadata length read.")
+                            break
 
-                        except Exception as e:
-                            logging.error(f"Error parsing metadata block: {e}")
+                        # Actual metadata length is length_byte * 16
+                        meta_length = ord(meta_byte) * 16
 
-    except Exception as e:
-        logging.error(f"Connection failed: {e}")
+                        if meta_length > 0:
+                            # 3. Read the exact metadata payload
+                            try:
+                                meta_data = await response.content.readexactly(meta_length)
+                            except (asyncio.IncompleteReadError, aiohttp.ClientPayloadError):
+                                logging.warning(f"Stream {stream_id} disconnected during metadata body read.")
+                                break
+
+                            # 4. Extract and parse StreamTitle
+                            try:
+                                meta_str = meta_data.decode("utf-8", errors="ignore")
+
+                                if "StreamTitle=" in meta_str:
+                                    title_part = meta_str.split("StreamTitle=")[1]
+                                    song_title = title_part.split(";")[0].strip(" '\"")
+                                    if song_title and song_title != current_song:
+                                        current_song = song_title       
+                                        logging.info(f"[NOW PLAYING][{stream_id}] {current_song}")
+
+                            except Exception as e:
+                                logging.error(f"[{stream_id}] Error parsing metadata block: {e}")
+
+        except asyncio.CancelledError:
+            logging.info(f"Stream task for {stream_id} was cancelled.")
+            break
+        except Exception as e:
+            logging.error(f"[{stream_id}] Connection error: {e}")
+
+        logging.info(f"[{stream_id}] Reconnecting in {retry_delay:.1f} seconds...")
+        await asyncio.sleep(retry_delay)
+        retry_delay = min(retry_delay * 2, max_delay)
 
 async def fetch_urls(url_fetcher, urls):
     """ Generates list of urls given a url fetcher """
