@@ -19,10 +19,10 @@ RE_DUPLICATE_NAME = re.compile(r'\b([A-Z][a-zA-Z0-9_]+(?:\s+[A-Z][a-zA-Z0-9_]+)*
 JUNK_PATTERNS = [
     r'song_spot=["\']T["\']',              # Radio Tease/Promo tag
     r'^StreamTitle=$',                     # Empty stream title
-    r'^Unknown_Artist\s*-\s*(-|Unknown|LA|NY|Dance Wave!|Tracklist:.*|All about Dance.*)$',
-    r'^(MY RADIO DJ|MY CLUB REMIX|My Radip Dj|radioBollyFM|NIUS Radio|SWR3|FFH|Radio Caroline).*',
-    r'^(Kontakt zu|Advert:|Backstage \* \*|\*\*\* Werbung|SWR3 Nachrichten|SWR3 Verkehrszentrum).*',
-    r'^(New Pop - Das Festival|EUROPE 2 - POP RADIO|Kurze Werbepause|Jetzt: NIUS).*'
+    # r'^Unknown_Artist\s*-\s*(-|Unknown|LA|NY|Dance Wave!|Tracklist:.*|All about Dance.*)$',
+    # r'^(MY RADIO DJ|MY CLUB REMIX|My Radip Dj|radioBollyFM|NIUS Radio|SWR3|FFH|Radio Caroline).*',
+    # r'^(Kontakt zu|Advert:|Backstage \* \*|\*\*\* Werbung|SWR3 Nachrichten|SWR3 Verkehrszentrum).*',
+    # r'^(New Pop - Das Festival|EUROPE 2 - POP RADIO|Kurze Werbepause|Jetzt: NIUS).*'
 ]
 RE_JUNK = re.compile('|'.join(JUNK_PATTERNS), re.IGNORECASE)
 
@@ -43,8 +43,8 @@ def parse_log_line(line):
         return None
 
     # # Step 1: Filter out promos, teases, and station noise
-    # if RE_JUNK.search(line):
-    #     return None
+    if RE_JUNK.search(line):
+        return None
 
     # Step 2: Handle Key-Value dumps independently (order doesn't matter)
     title_match = RE_TITLE_ATTR.search(line)

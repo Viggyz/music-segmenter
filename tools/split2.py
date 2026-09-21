@@ -34,7 +34,7 @@ RE_DOUBLE_QUOTES = re.compile(r'"([^"]*)"')
 
 # 2. Regex to split on delimiters: ' - ' (spaced hyphen), '/', '|', or '->'
 # RE_ALL_DELIMITERS = re.compile(r'\s+-\s+|\s*,\s|\s* and \s*|\s*/\s*|\s*\|\s*|\s*->\s*')
-RE_ALL_DELIMITERS = re.compile(r'\s+-\s+|\s*/\s*|\s*\|\s*|\s*->\s*')
+RE_ALL_DELIMITERS = re.compile(r'\s+-\s+|\s*/\s*|\s*\|\s*|\s*->\s*|\s  \s')
 
 # 3. Regex to strip standalone XML attribute tags/keys when unquoted (e.g., song_spot=, MediaBaseId=)
 RE_XML_ATTR = re.compile(r'\b[a-zA-Z0-9_]+=\b')
@@ -45,14 +45,13 @@ def extract_text_blocks(raw_line):
     Splits on ' - ', '/', '|', and '->' while keeping 'KHFI-FM' intact.
     """
     quoted_matches = RE_DOUBLE_QUOTES.findall(raw_line)
-    
+
+    target_segments = []
     # Target segments: either quoted strings OR the full unquoted line
-    if quoted_matches:
-        target_segments = quoted_matches
-    else:
-        # If unquoted, strip any orphan XML attribute tags (e.g. key=) before parsing
-        clean_unquoted = RE_XML_ATTR.sub('', raw_line)
-        target_segments = [clean_unquoted]
+    target_segments = quoted_matches
+    # If unquoted, strip any orphan XML attribute tags (e.g. key=) before parsing
+    clean_unquoted = RE_XML_ATTR.sub('', raw_line)
+    target_segments.append(clean_unquoted)
         
     all_blocks = []
     
