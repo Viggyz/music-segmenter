@@ -82,7 +82,7 @@ class AACStreamProcessor:
                 if artist and song:
                     return artist, song
 
-        return "Unknown_Artist", raw_title
+        return "", raw_title
 
     async def _create_outfile(self, title: str):
         if self._out_file is not None:

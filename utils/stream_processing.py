@@ -69,7 +69,7 @@ class StreamProcesser:
             song = artist_song_match.group("song").strip()
             return artist, song
 
-        return "Unknown_Artist", raw_title
+        return "", raw_title
 
     async def _create_outfile(self, title: str):
         if self._out_file is not None:

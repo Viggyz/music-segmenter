@@ -1,7 +1,11 @@
 .venv/
+venv/
 __pycache__/
 streams/
 segments/
 logs/
+test_outputs/
 
 .env
+*.csv
+*.txt
