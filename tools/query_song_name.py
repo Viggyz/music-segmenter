@@ -94,15 +94,29 @@ def preprocess_json_to_dict(input_file):
     seen = set()
     for entry in dict:
         if entry['title_type']['choice'] == 'track' and entry['title_type']['confidence'] >= THRESHOLD_CONFIDENCE:
-            if tup:=(entry['primary_artist']['choice'], entry['title']['choice']) in seen:
+            if tup := (entry['primary_artist']['choice'], entry['title']['choice']) in seen:
                 continue
             seen.add(tup)
             value = {}
-            if (artist:=entry['primary_artist']['choice']) != 'none':
+            if (artist := entry['primary_artist']['choice']) != 'none':
                 value['artist'] = artist
-            if (title:=entry['title']['choice']) != 'none':
+            if (title := entry['title']['choice']) != 'none':
                 value['title'] = title
             yield value
+
+
+def preprocess_queries_from_parsed_artists(input_file):
+    parsed_artists = csv.DictReader(open(input_file, 'r', encoding='utf-8'))
+    seen = set()
+    for entry in parsed_artists:
+        if tup := (entry['artist'], entry['title']) in seen:
+            print(f"Already seen {tup}")
+            continue
+        seen.add(tup)
+        yield {
+            "artist": entry['artist'],
+            "title": entry['title']
+        }
 
 
 # --- TEST BATCH DATA ---
@@ -119,5 +133,10 @@ test_queries = [
 # Run the pipeline and save to file
 # process_queries_to_csv(test_queries)
 
-process_queries_to_csv(preprocess_json_to_dict(
+# this is for jev pipeline
+# process_queries_to_csv(preprocess_json_to_dict(
+# sys.argv[1]), output_filename=sys.argv[2])
+
+# this is for regex parsing
+process_queries_to_csv(preprocess_queries_from_parsed_artists(
     sys.argv[1]), output_filename=sys.argv[2])
