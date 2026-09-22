@@ -33,7 +33,7 @@ LOOKUP_STATIONS = [
     "Hit Radio FFH",
     "Hits 1 Ibiza",
     "SWR3", # Just too noisy
-    "Heart London 106.2 [MP3]",
+    # "Heart London 106.2 [MP3]",
     "Capital FM London",
     # "Rock FM", # does not support ICY metadata
     "Radio Caroline",
@@ -61,7 +61,7 @@ LOOKUP_STATIONS = [
     # ".977 The Mix",
     "Radio RMF MAXXX",
     "1.FM - Amsterdam Trance Radio",
-    # "Heart", Dupe of other Heart ratio
+    # "Heart",  Dupe of heart UK
     "Nostalgie New York",
     "Radio Paradise Mellow Mix 320k AAC",
     "Chocolate FM",
@@ -71,7 +71,7 @@ LOOKUP_STATIONS = [
     # "Radio 105 - Dance 90", Wierd output
     # "Hits 1 Algérie", # Duplicate of other Hits 1
     "Jazz Radio Funk",
-    # "Heart UK", # Dupe of Heart
+    "Heart UK", # Dupe of Heart
     "Capital Dance",
     "Skyrock",
     # ".977 Hitz", # No icy metadata
