@@ -7,5 +7,3 @@ logs/
 test_outputs/
 
 .env
-*.csv
-*.txt

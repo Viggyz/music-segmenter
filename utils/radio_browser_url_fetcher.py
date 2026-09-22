@@ -17,7 +17,12 @@ ALLOWLISTED_STATIONS = [
     "Mirchi Top 20",
     "Mirchi Love",
     "Bollywood 2010's",
-    "Red Fm" # AAC
+    "Red Fm", # AAC,
+    "Bombay Beats Radio",
+    "Radio Indigo 91.9 FM in Panaji/Bangalore",
+    "Desi Hits 2000s",
+    "MixiFy Hindi Hits",
+    "ISHQ FM 104.8",
 ]
 LOOKUP_STATIONS = [
     "MANGORADIO",
@@ -27,11 +32,57 @@ LOOKUP_STATIONS = [
     "96.7 KISS FM - KHFI-FM Austin",
     "Hit Radio FFH",
     "Hits 1 Ibiza",
-    "SWR3",
+    "SWR3", # Just too noisy
     "Heart London 106.2 [MP3]",
     "Capital FM London",
-    "Rock FM",
+    # "Rock FM", # does not support ICY metadata
     "Radio Caroline",
+    "- 0 N - Pop on Radio",
+    # "CAPITAL - The UK's No.1 Hit Music Station", # Dupe of Capital FM London
+    "Heart 80s",
+    "Cadena 100",
+    "1LIVE",
+    "Radio 538",
+    # "Radio Deejay", # No ICY
+    "Hit FM (UKraine) - 128kb/s",
+    "Bayern 3",
+    "Radio Nova",
+    "Radio Eins",
+    "Heart 90s",
+    # "CAPITAL DANCE: The UK's Official Dance Station", # Dupe of other capital dance
+    "- 0 N - Classic Rock on Radio",
+    # "Deep House Radio - Bucharest Romania", # No icy
+    "ESKA ROCK",
+    "Radio Paradise Rock Mix 320k AAC",
+    "West Coast – G-Funk & Hip-Hop",
+    "Zeppelin 106.7",
+    "KISS - The Best Vibes & Energy",
+    "SLAM!",
+    # ".977 The Mix",
+    "Radio RMF MAXXX",
+    "1.FM - Amsterdam Trance Radio",
+    # "Heart", Dupe of other Heart ratio
+    "Nostalgie New York",
+    "Radio Paradise Mellow Mix 320k AAC",
+    "Chocolate FM",
+    "538 TOP 50",
+    "Radio Swiss Pop",
+    "Radio Paradise Main Mix 128 AAC",
+    # "Radio 105 - Dance 90", Wierd output
+    # "Hits 1 Algérie", # Duplicate of other Hits 1
+    "Jazz Radio Funk",
+    # "Heart UK", # Dupe of Heart
+    "Capital Dance",
+    "Skyrock",
+    # ".977 Hitz", # No icy metadata
+    "Frisky",
+    # "Hard Rock Heaven", # NO icy metadata
+    "Radio Freedom",
+    "Smooth Radio",
+    "TMM 1",
+    "Radio Record - Main Channel",
+    "1.FM - Deep House Radio",
+    # "Metro FM", # No icy metadata
 ]
 
 LOG_PREFIX = "[URL FETCHER]: "
@@ -104,14 +155,25 @@ class RadioBrowserUrlFetcher:
             stations = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes", "reverse": "true", "hide_broken": "true", "countrycode": "IN"})
             for station in stations:
                 if station['name'] in ALLOWLISTED_STATIONS:
-                    if station['codec'] not in ('MP3', 'AAC'):
+                    if station['codec'] not in ('MP3', 'AAC', 'AAC+'):
                         logging.warning("%sInvalid codec %s for station %s",
                                         LOG_PREFIX, station['codec'], station['name'])
                         continue
                     logging.info("%s emitting station %s:%s", LOG_PREFIX,
                                  station['name'], station['url_resolved'])
                     yield station['name'], station['url'], station['codec']
-            for lookup_name in LOOKUP_STATIONS:
+            all_stations = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes", "reverse": "true", "hide_broken": "true", "limit": "3000"})
+            stations_not_found = set(LOOKUP_STATIONS)
+            for station in all_stations:
+                if station['name'] in LOOKUP_STATIONS:
+                    if station['name'] in stations_not_found:
+                        stations_not_found.remove(station['name'])
+                    else:
+                        logging.warning("Station duplicate %s", station['name'])
+                        continue
+                    yield station['name'], station['url'], station['codec']
+            assert len(stations_not_found) < 15, stations_not_found
+            for lookup_name in stations_not_found:
                 results = await self._download_radiobrowser(session, "/json/stations/search", {"order": "votes", "reverse": "true", "hide_broken": "true", "name": lookup_name})
                 station = results[0]
                 # if station['codec'] != 'MP3':
