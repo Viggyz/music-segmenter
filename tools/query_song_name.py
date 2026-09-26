@@ -1,20 +1,32 @@
+import asyncio
 import csv
 import json
-import musicbrainzngs
-import time
 import sys
+import time
+
+import musicbrainzngs
 
 # --- CONFIGURATION ---
 # 1. Initialize the mandatory User-Agent (Format: AppName, Version, Contact)
-musicbrainzngs.set_useragent(
-    "RadioLogParserApp", "1.0", "devvig19@example.com")
+musicbrainzngs.set_useragent("RadioLogParserApp", "1.0", "devvig19@example.com")
 
 # Optional: Disable the library's default 1-request-per-second built-in limit
 # so we can manage our own custom pacing.
-musicbrainzngs.set_rate_limit(False)
+musicbrainzngs.set_rate_limit(True)
 
 # Target ~30 requests per second pacing
 REQUEST_DELAY = 1.0 / 30.0
+
+
+def extract_genres(entity):
+    genres = []
+    for key in ("genre-list", "tag-list"):
+        for item in entity.get(key, []):
+            if isinstance(item, dict) and "name" in item:
+                genres.append(item["name"])
+            elif isinstance(item, str):
+                genres.append(item)
+    return genres
 
 
 def search_musicbrainz(artist, title):
@@ -22,25 +34,46 @@ def search_musicbrainz(artist, title):
     try:
         # The library abstracts away the URL formatting and JSON parsing
         result = musicbrainzngs.search_recordings(
-            artist=artist, recording=title, limit=1)
+            artist=artist, recording=title, limit=1
+        )
 
         recordings = result.get("recording-list", [])
         if recordings:
             rec = recordings[0]
             rec_title = rec.get("title", title)
+            title_id = rec.get("id")
 
             artist_name = artist
+            artist_id = None
             if "artist-credit" in rec and rec["artist-credit"]:
                 credit = rec["artist-credit"][0]
                 if isinstance(credit, dict) and "artist" in credit:
-                    artist_name = credit["artist"].get("name", artist)
+                    artist_obj = credit["artist"]
+                    artist_name = artist_obj.get("name", artist)
+                    artist_id = artist_obj.get("id")
                 elif isinstance(credit, dict) and "name" in credit:
                     artist_name = credit.get("name", artist)
+
+            # looking for album
+            album_title = ""
+            if rec.get("release-list"):
+                first_release = rec.get("release-list")[0]
+
+                album_title = first_release.get("title")
+                album_id = first_release.get("id")
+
+            # attempt to fetch genres
+            genres = extract_genres(rec)
+
+            genre_str = ", ".join(genres[:3]) if genres else ""
 
             return {
                 "source": "musicbrainzngs",
                 "artist": artist_name,
-                "title": rec_title
+                "title": rec_title,
+                "album": album_title,
+                "genre": genre_str,
+                "title_id": title_id
             }
 
     except musicbrainzngs.WebServiceError as e:
@@ -48,16 +81,26 @@ def search_musicbrainz(artist, title):
     except Exception as e:
         print(f"Unexpected Error: {e}")
 
-    return {"source": "none", "artist": artist, "title": title}
+    return {"source": "none", "artist": artist, "title": title, "genre": "none", "album": "none", "title_id": "none"}
 
 
 def process_queries_to_csv(queries, output_filename="musicbrainzngs_resolved_logs.csv"):
     """Processes tracks via musicbrainzngs library and writes results to CSV"""
-    fieldnames = ["station_name", "input_artist", "input_title",
-                  "source", "resolved_artist", "resolved_title"]
+    fieldnames = [
+        "station_name",
+        "input_artist",
+        "input_title",
+        "source",
+        "resolved_artist",
+        "resolved_title",
+        "resolved_genres",
+        "resolved_album",
+        "resolved_title_id",
+    ]
 
     print(
-        f"Processing queries tracks using 'musicbrainzngs' -> Saving to '{output_filename}'...\n")
+        f"Processing queries tracks using 'musicbrainzngs' -> Saving to '{output_filename}'...\n"
+    )
 
     with open(output_filename, mode="w", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -68,21 +111,25 @@ def process_queries_to_csv(queries, output_filename="musicbrainzngs_resolved_log
             artist = query.get("artist")
             title = query.get("title")
 
-            print(
-                f"[{idx+1}/??] Querying -> Artist: '{artist}' | Title: '{title}'")
+            print(f"[{idx+1}/??] Querying -> Artist: '{artist}' | Title: '{title}'")
 
             # Query via library function
             resolved = search_musicbrainz(artist, title)
 
             # Write row to CSV
-            writer.writerow({
-                "station_name": query.get("station_name"),
-                "input_artist": artist,
-                "input_title": title,
-                "source": resolved["source"],
-                "resolved_artist": resolved["artist"],
-                "resolved_title": resolved["title"]
-            })
+            writer.writerow(
+                {
+                    "station_name": query.get("station_name"),
+                    "input_artist": artist,
+                    "input_title": title,
+                    "source": resolved["source"],
+                    "resolved_artist": resolved["artist"],
+                    "resolved_title": resolved["title"],
+                    "resolved_genres": resolved["genre"],
+                    "resolved_album": resolved["album"],
+                    "resolved_title_id": resolved["title_id"]
+                }
+            )
 
     print(f"\nDone! Results successfully saved to {output_filename}")
 
@@ -90,34 +137,40 @@ def process_queries_to_csv(queries, output_filename="musicbrainzngs_resolved_log
 def preprocess_json_to_dict(input_file):
     THRESHOLD_CONFIDENCE = 0.6
 
-    dict = json.load(open(input_file, 'r'))
+    dict = json.load(open(input_file, "r"))
     queries = []
     seen = set()
     for entry in dict:
-        if entry['title_type']['choice'] == 'track' and entry['title_type']['confidence'] >= THRESHOLD_CONFIDENCE:
-            if tup := (entry['primary_artist']['choice'], entry['title']['choice']) in seen:
+        if (
+            entry["title_type"]["choice"] == "track"
+            and entry["title_type"]["confidence"] >= THRESHOLD_CONFIDENCE
+        ):
+            if (
+                tup := (entry["primary_artist"]["choice"], entry["title"]["choice"])
+                in seen
+            ):
                 continue
             seen.add(tup)
             value = {}
-            if (artist := entry['primary_artist']['choice']) != 'none':
-                value['artist'] = artist
-            if (title := entry['title']['choice']) != 'none':
-                value['title'] = title
+            if (artist := entry["primary_artist"]["choice"]) != "none":
+                value["artist"] = artist
+            if (title := entry["title"]["choice"]) != "none":
+                value["title"] = title
             yield value
 
 
 def preprocess_queries_from_parsed_artists(input_file):
-    parsed_artists = csv.DictReader(open(input_file, 'r', encoding='utf-8'))
+    parsed_artists = csv.DictReader(open(input_file, "r", encoding="utf-8"))
     seen = set()
     for entry in parsed_artists:
-        if tup := (entry['artist'], entry['title']) in seen:
+        if tup := (entry["artist"], entry["title"]) in seen:
             print(f"Already seen {tup}")
             continue
         seen.add(tup)
         yield {
-            "artist": entry['artist'],
-            "title": entry['title'],
-            "station_name": entry['station_name']
+            "artist": entry["artist"],
+            "title": entry["title"],
+            "station_name": entry["station_name"],
         }
 
 
@@ -125,7 +178,7 @@ def preprocess_queries_from_parsed_artists(input_file):
 test_queries = [
     {"artist": "Coldplay", "title": "Higher Power"},
     {"artist": "Taylor Swift", "title": "Blank Space"},
-    {"artist": "Swedish House Mafia", "title": "Don"}
+    {"artist": "Swedish House Mafia", "title": "Don"},
 ]
 # all_queries = json.load(open(sys.argv[1], 'r'))
 # deduped_queries = set((d['artist'], d['title']) for d in all_queries)
@@ -140,5 +193,6 @@ test_queries = [
 # sys.argv[1]), output_filename=sys.argv[2])
 
 # this is for regex parsing
-process_queries_to_csv(preprocess_queries_from_parsed_artists(
-    sys.argv[1]), output_filename=sys.argv[2])
+process_queries_to_csv(
+    preprocess_queries_from_parsed_artists(sys.argv[1]), output_filename=sys.argv[2]
+)

@@ -1,28 +1,45 @@
 import asyncio
 import collections
-from datetime import datetime
 import hashlib
 import logging
 import multiprocessing
-from pathlib import Path
 import re
+import uuid
+from datetime import datetime
+from pathlib import Path
 
 import aiohttp
+
+from models import Codec, Station, StreamClip
+from utils.title_parser import get_title_and_artist
+
+DEFAULT_CURRENT_TITLE = "[No title set]"
 
 
 class AACStreamProcessor:
     MAX_FILE_DURATION_SEC = 600
 
-    def __init__(self, url, stream_id, data_folder, queue, output_format: str = "mp3"):
+    def __init__(
+        self,
+        url,
+        stream_id,
+        data_folder,
+        stream_id_obj,
+        queue,
+        output_format: str = "mp3",
+    ):
         self.url = url
         self.stream_id = stream_id
         self.data_folder = Path(data_folder)
         self._queue = queue
-        
+        self._stream_obj = stream_id_obj
+
         # Supported output formats: 'm4a', 'mp3', or 'aac'
         self.output_format = output_format.lower().strip()
         if self.output_format not in ("m4a", "mp3", "aac"):
-            raise ValueError(f"Unsupported format '{output_format}'. Choose 'm4a', 'mp3', or 'aac'.")
+            raise ValueError(
+                f"Unsupported format '{output_format}'. Choose 'm4a', 'mp3', or 'aac'."
+            )
 
         # Audio stream state
         self._audio_buffer = bytearray()
@@ -31,78 +48,38 @@ class AACStreamProcessor:
         self._out_file = None
         self._temp_aac_path = None
         self._final_out_path = None
+        self._current_file = None
 
         # Deduplication cache (last ~8 seconds of frames)
         self._recent_hashes = collections.deque(maxlen=300)
 
         # ICY Track State
-        self.current_artist = "Unknown"
-        self.current_song = "Track"
+        self.current_title = DEFAULT_CURRENT_TITLE
 
-    @property
-    def current_title(self) -> str:
-        return f"{self.current_artist.replace(' ', '_')}-{self.current_song.replace(' ', '_')}"
-
-    def _sanitize_filename(self, title: str) -> str:
-        """Strips invalid OS characters while preserving 'Artist - Song Name' structure."""
-        title = title[:120]
-        clean = re.sub(r'[\\/*?:"<>|\']', "", title)
-        clean = re.sub(r"\s+", " ", clean).strip()
-        return clean or "Unknown_Track"
-
-    def _parse_icy_title(self, meta_str: str) -> tuple[str, str] | None:
-        """
-        Parses ICY metadata string.
-        Extracts title from StreamTitle='...' if present, then extracts Artist and Song.
-        Supports both:
-        1. iHeart / Key-Value format: "Artist - text="Song" ..."
-        2. Standard format: "Artist - Song"
-        """
-        if not meta_str:
-            return None
-
-        # Step 1: Extract string inside StreamTitle='...' if present
-        match_title = re.search(r"StreamTitle='([^']*)'", meta_str)
-        raw_title = match_title.group(1).strip() if match_title else meta_str.strip()
-
-        if not raw_title:
-            return None
-
-        # Step 2: Try Pattern 1 (iHeart style), then Pattern 2 (Standard style)
-        patterns = [
-            r'^(?P<artist>.+?)\s*-\s*text="(?P<song>[^"]+)"',  # Pattern 1 (iHeart)
-            r'^(?P<artist>.+?)\s*-\s*(?P<song>.+)$',            # Pattern 2 (Standard)
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, raw_title)
-            if match:
-                artist = match.group("artist").strip()
-                song = match.group("song").strip()
-                if artist and song:
-                    return artist, song
-
-        return "", raw_title
-
-    async def _create_outfile(self, title: str):
+    async def _create_outfile(self):
         if self._out_file is not None:
             await self._close_outfile()
 
-        safe_title = self._sanitize_filename(title)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         output_dir = self.data_folder / f"radio_{self.stream_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         self._file_count += 1
-        
+
         # Temporary raw AAC file captured during live streaming
-        self._temp_aac_path = output_dir / f".temp_{safe_title}_{timestamp}.aac"
+        self._temp_aac_path = output_dir / f".temp_{timestamp}.aac"
         # Final output track path (.m4a / .mp3 / .aac)
-        self._final_out_path = output_dir / f"{safe_title}_{timestamp}.{self.output_format}"
-        
-        logging.info("[Stream %s] Recording track: %s", self.stream_id, self._final_out_path.name)
+        self._final_out_path = output_dir / f"{timestamp}.{self.output_format}"
+
+        logging.info(
+            "[Stream %s] Recording track: %s", self.stream_id, self._final_out_path.name
+        )
         self._out_file = open(self._temp_aac_path, "wb")
         self._file_start_time = asyncio.get_running_loop().time()
+        self._current_file = await StreamClip.create(
+            station_id=self._stream_obj,
+            file_path=self._temp_aac_path,
+        )
 
     async def _write_frame(self, frame_bytes: bytes):
         # Check 6-minute timeout without metadata change
@@ -110,13 +87,13 @@ class AACStreamProcessor:
             elapsed = asyncio.get_running_loop().time() - self._file_start_time
             if elapsed >= self.MAX_FILE_DURATION_SEC:
                 logging.info(
-                    "[Stream %s] File reached 6 minutes without track change. Rotating...", 
-                    self.stream_id
+                    "[Stream %s] File reached 6 minutes without track change. Rotating...",
+                    self.stream_id,
                 )
                 await self._close_outfile()
 
         if self._out_file is None:
-            await self._create_outfile(self.current_title)
+            await self._create_outfile()
 
         self._out_file.write(frame_bytes)
 
@@ -125,18 +102,32 @@ class AACStreamProcessor:
         if self.output_format == "m4a":
             # Lossless remuxing: copies raw AAC bitstream into MP4 container
             cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                '-i', str(src_aac),
-                '-c:a', 'copy',
-                str(dst_file)
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(src_aac),
+                "-c:a",
+                "copy",
+                str(dst_file),
             ]
         elif self.output_format == "mp3":
             # Transcodes AAC to high quality VBR MP3 (~190-250 kbps)
             cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                '-i', str(src_aac),
-                '-c:a', 'libmp3lame', '-q:a', '2',
-                str(dst_file)
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(src_aac),
+                "-c:a",
+                "libmp3lame",
+                "-q:a",
+                "2",
+                str(dst_file),
             ]
         else:
             # Output format is already raw 'aac'
@@ -158,19 +149,32 @@ class AACStreamProcessor:
 
             if self._temp_aac_path and self._temp_aac_path.exists():
                 logging.info(
-                    "[Stream %s] Finalizing %s file...", 
-                    self.stream_id, self.output_format.upper()
+                    "[Stream %s] Finalizing %s file...",
+                    self.stream_id,
+                    self.output_format.upper(),
                 )
                 try:
-                    await self._convert_aac_file(self._temp_aac_path, self._final_out_path)
-                    logging.info("[Stream %s] Saved: %s", self.stream_id, self._final_out_path.name)
-                    
+                    await self._convert_aac_file(
+                        self._temp_aac_path, self._final_out_path
+                    )
+
+                    # Update the filepath in the schema
+                    self._current_file.file_path = self._final_out_path
+                    await self._current_file.save(update_fields=["file_path"])
+                    logging.info(
+                        "[Stream %s] Saved: %s",
+                        self.stream_id,
+                        self._final_out_path.name,
+                    )
+
                     # loop = asyncio.get_running_loop()
                     # await loop.run_in_executor(
                     #     None, self._queue.put, (self.stream_id, self._final_out_path)
-                    # ) 
+                    # )
                 except Exception as e:
-                    logging.error("[Stream %s] Error converting file: %s", self.stream_id, e)
+                    logging.error(
+                        "[Stream %s] Error converting file: %s", self.stream_id, e
+                    )
 
             self._temp_aac_path = None
             self._final_out_path = None
@@ -187,7 +191,7 @@ class AACStreamProcessor:
         if len(header_bytes) < 7:
             return -1
         b0, b1, _, _, b4, b5, _ = header_bytes[:7]
-        
+
         # Check ADTS syncword (12 bits set to 1)
         if not (b0 == 0xFF and (b1 & 0xF0) == 0xF0):
             return -1
@@ -198,7 +202,9 @@ class AACStreamProcessor:
 
     async def _process_audio_buffer(self):
         """Parses and writes all complete ADTS AAC frames sitting in _audio_buffer."""
-        while len(self._audio_buffer) >= 7 and self.current_song != "Track":
+        while (
+            len(self._audio_buffer) >= 7 and self.current_title != DEFAULT_CURRENT_TITLE
+        ):
             b0 = self._audio_buffer[0]
             b1 = self._audio_buffer[1]
             if b0 == 0xFF and (b1 & 0xF0) == 0xF0:
@@ -218,41 +224,74 @@ class AACStreamProcessor:
                 self._audio_buffer.pop(0)
 
     async def _handle_metadata_change(self, meta_str: str):
-        parsed = self._parse_icy_title(meta_str)
-        if not parsed:
-            return
+        if not meta_str:
+            return None
 
-        new_artist, new_song = parsed
-        if (new_artist, new_song) == (self.current_artist, self.current_song):
+        new_title = ""
+        if "StreamTitle=" in meta_str:
+            title_part = meta_str.split("StreamTitle=")[1]
+            song_title = title_part.split(";")[0].strip(" '\"")
+            if song_title and song_title != self.current_title:
+                new_title = song_title
+        if new_title == "":
             return
 
         logging.info(
-            "[Stream %s] ICY Track Change: '%s - %s' -> '%s - %s'",
-            self.stream_id, self.current_artist, self.current_song, new_artist, new_song
+            "[Stream %s] ICY Track Change: '%s' -> '%s'",
+            self.stream_id,
+            self.current_title,
+            new_title,
         )
-        
-        # Flush pending audio frames to old track before rotating files
-        await self._process_audio_buffer()
-        await self._close_outfile()
-        
-        self.current_artist = new_artist
-        self.current_song = new_song
+
+        if self.current_title != DEFAULT_CURRENT_TITLE:
+            # Flush pending audio frames to old track before rotating files
+            await self._process_audio_buffer()
+            await self._close_outfile()
+            # basically now do the writing and metadata writing.
+            data = await get_title_and_artist(self.current_title)
+            self._current_file.raw_stream_title = self.current_title
+            self._current_file.is_track = data["is_track"]
+            self._current_file.parser_metadata_id = data["meta_id"]
+            if data["is_track"]:
+                self._current_file.artists = data["artist"]
+                self._current_file.title = data["title"]
+            await self._current_file.save(
+                update_fields=[
+                    "raw_stream_title",
+                    "is_track",
+                    "parser_metadata_id",
+                    "artists",
+                    "title",
+                ]
+            )
+
+        self.current_title = new_title
 
     async def record_aac_stream(self):
         retry_delay = 0
         connector = aiohttp.TCPConnector(ssl=False)
         timeout = aiohttp.ClientTimeout(total=None, connect=10, sock_read=15)
 
-        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout
+        ) as session:
             while True:
                 try:
-                    logging.info("[Stream %s] Connecting to %s...", self.stream_id, self.url)
-                    async with session.get(self.url, headers={"Icy-MetaData": "1"}) as response:
+                    logging.info(
+                        "[Stream %s] Connecting to %s...", self.stream_id, self.url
+                    )
+                    async with session.get(
+                        self.url, headers={"Icy-MetaData": "1"}
+                    ) as response:
                         if response.status != 200:
                             raise aiohttp.ClientError(f"HTTP Status {response.status}")
 
                         metaint = int(response.headers.get("icy-metaint", 0))
-                        logging.info("[Stream %s] Connected (icy-metaint=%d)", self.stream_id, metaint)
+                        logging.info(
+                            "[Stream %s] Connected (icy-metaint=%d)",
+                            self.stream_id,
+                            metaint,
+                        )
                         retry_delay = 0
 
                         state = "AUDIO"
@@ -297,9 +336,11 @@ class AACStreamProcessor:
                                     meta_bytes_needed -= take
 
                                     if meta_bytes_needed == 0:
-                                        meta_str = meta_buffer.decode("utf-8", errors="ignore").rstrip("\x00")
+                                        meta_str = meta_buffer.decode(
+                                            "utf-8", errors="ignore"
+                                        ).rstrip("\x00")
                                         await self._handle_metadata_change(meta_str)
-                                        
+
                                         audio_bytes_needed = metaint
                                         state = "AUDIO"
 
@@ -310,17 +351,25 @@ class AACStreamProcessor:
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     await self._close_outfile()
                     retry_delay = min(retry_delay + 1, 10) if retry_delay > 0 else 0.1
-                    logging.info("[Stream %s] Disconnected (%s). Reconnecting in %ds...", self.stream_id, e, retry_delay)
+                    logging.info(
+                        "[Stream %s] Disconnected (%s). Reconnecting in %ds...",
+                        self.stream_id,
+                        e,
+                        retry_delay,
+                    )
                     await asyncio.sleep(retry_delay)
 
     @classmethod
-    def from_stream(
-        cls, 
-        urls: dict[str, str], 
-        data_folder: str, 
-        queue: multiprocessing.Queue, 
-        output_format: str = "m4a"
+    async def from_stream(
+        cls,
+        url,
+        key,
+        data_folder: str,
+        queue: multiprocessing.Queue,
+        output_format: str = "m4a",
     ):
         """Start multiple streams generator with specified output format ('m4a' or 'mp3')."""
-        for key, url in urls.items():
-            yield cls(url, key, data_folder, queue, output_format=output_format).record_aac_stream()
+        station, _ = await Station.get_or_create(
+            station_identifier=key, url=url, codec=Codec.AAC
+        )
+        return cls(url, key, data_folder, station, queue, output_format=output_format)

@@ -1,25 +1,33 @@
+import argparse
 import asyncio
-
+import datetime
 import logging
-import sys
 import os
+import sys
 from multiprocessing import Process, Queue
 
-from utils.stream_processing import StreamProcesser
+from tortoise import Tortoise
+
 from utils.aac_stream_processor import AACStreamProcessor
 from utils.file import make_folder
-from utils.rupture_segmenter import RuptureSegmenter
 from utils.radio_browser_url_fetcher import RadioBrowserUrlFetcher
+from utils.rupture_segmenter import RuptureSegmenter
+from utils.stream_processing import StreamProcesser
 
 LOG_DIR = "logs"
+
+parser = argparse.ArgumentParser(description="A script that accepts a command-line flag.")
+parser.add_argument("-rdb", "--reset_db", action="store_true", help="Drop and recreate db")
+args = parser.parse_args()
 
 
 def setup_process_logging(process_identifier):
     """
     Configures logging handlers (Console + File) unique to the calling process.
     """
-    os.makedirs(LOG_DIR, exist_ok=True)
-    log_filename = os.path.join(LOG_DIR, f"{process_identifier}.log")
+    os.makedirs(os.path.join(LOG_DIR, process_identifier), exist_ok=True)
+    # log_filename = os.path.join(LOG_DIR, f"{process_identifier}.log")
+    log_filename = datetime.datetime.now().strftime(f"{LOG_DIR}/{process_identifier}/run_%Y%m%d_%H%M%S.log")
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -48,13 +56,15 @@ async def fetch_urls(url_fetcher, urls):
 
 
 async def async_producer(queue, urls, data_folder):
+    await setup_db_connection()
+
     producers = []
     for stream_id, (url, codec) in urls.items():
         if codec == 'MP3':
-            processor = StreamProcesser(url, stream_id, data_folder, queue)
+            processor = await StreamProcesser.from_stream(url, stream_id, data_folder, queue)
             producers.append(asyncio.create_task(processor.record_mp3_stream()))
         elif codec == 'AAC':
-            processor = AACStreamProcessor(url, stream_id, data_folder, queue)
+            processor = await AACStreamProcessor.from_stream(url, stream_id, data_folder, queue)
             producers.append(asyncio.create_task(processor.record_aac_stream()))
 
     await asyncio.gather(*producers)
@@ -62,6 +72,8 @@ async def async_producer(queue, urls, data_folder):
     # send poison pills to safely shutdown consumer processes.
     for _ in range(3):
         queue.put(None)
+        
+    await Tortoise.close_connection()
 
 
 def producer_worker(queue, urls, data_folder):
@@ -75,6 +87,36 @@ def consumer_worker(queue, data_folder, segment_folder, worker_id):
     logging.info(f"Consumer worker {worker_id} initialized")
     RuptureSegmenter.create_and_return_segmenter(
         data_folder, segment_folder, queue)
+
+async def setup_db_connection():
+    db_config = {
+        'connections': {'default': 'sqlite://db.sqlite3'},
+        'apps': {
+            'models': {
+                'models': ['models'], # Replace with your models module path
+                'default_connection': 'default',
+            }
+        }
+    }
+
+    
+    # 1. Initialize to establish the connection
+    await Tortoise.init(config=db_config)
+    if args.reset_db:
+        logging.warning("Resetting and recreating db.")
+
+        # 2. Drop all tables managed by this configuration
+        await Tortoise._drop_databases()
+        
+        # 3. RE-INITIALIZE to recreate the connection pool
+        await Tortoise.init(config=db_config)
+
+        # 4. Re-create all tables from scratch
+        # safe=False forces it to create tables even if they exist (or after dropping)
+        await Tortoise.generate_schemas(safe=False)
+    else:
+        await Tortoise.generate_schemas()
+
 
 
 if __name__ == "__main__":

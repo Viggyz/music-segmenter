@@ -7,3 +7,6 @@ logs/
 test_outputs/
 
 .env
+app.*
+db.*
+todo
