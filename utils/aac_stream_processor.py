@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import aiohttp
+import av
 
 from models import Codec, Station, StreamClip
 from utils.title_parser import get_title_and_artist
@@ -97,50 +98,99 @@ class AACStreamProcessor:
 
         self._out_file.write(frame_bytes)
 
+    @staticmethod
+    def _pyav_remux_aac_to_m4a(src_aac: Path, dst_file: Path):
+        """Converts raw ADTS AAC file into an M4A (MP4) container using PyAV."""
+        with av.open(str(src_aac)) as in_container, av.open(
+            str(dst_file), mode="w", format="mp4"
+        ) as out_container:
+            in_stream = in_container.streams.audio[0]
+
+            rate = in_stream.rate or 44100
+            layout_str = (
+                in_stream.layout.name
+                if getattr(in_stream, "layout", None)
+                else ("stereo" if getattr(in_stream, "channels", 2) == 2 else "mono")
+            )
+
+            out_stream = out_container.add_stream("aac", rate=rate)
+            out_stream.layout = layout_str
+            if getattr(in_stream, "bit_rate", None):
+                out_stream.bit_rate = in_stream.bit_rate
+
+            # Audio resampler ensures frame sample format (fltp) and layout alignment
+            resampler = av.AudioResampler(
+                format="fltp",
+                layout=layout_str,
+                rate=rate,
+            )
+
+            # Decode raw AAC frames and encode into M4A container
+            for frame in in_container.decode(in_stream):
+                for resampled_frame in resampler.resample(frame):
+                    for packet in out_stream.encode(resampled_frame):
+                        out_container.mux(packet)
+
+            # Flush resampler buffer
+            for resampled_frame in resampler.resample(None):
+                for packet in out_stream.encode(resampled_frame):
+                    out_container.mux(packet)
+
+            # Flush encoder buffer
+            for packet in out_stream.encode(None):
+                out_container.mux(packet)
+
+    @staticmethod
+    def _pyav_transcode_aac_to_mp3(src_aac: Path, dst_file: Path):
+        """Transcodes raw ADTS AAC file into an MP3 file using PyAV."""
+        with av.open(str(src_aac)) as in_container, av.open(
+            str(dst_file), mode="w", format="mp3"
+        ) as out_container:
+            in_stream = in_container.streams.audio[0]
+
+            rate = in_stream.rate or 44100
+            layout_str = (
+                in_stream.layout.name
+                if getattr(in_stream, "layout", None)
+                else ("stereo" if getattr(in_stream, "channels", 2) == 2 else "mono")
+            )
+
+            out_stream = out_container.add_stream("mp3", rate=rate)
+
+            resampler = av.AudioResampler(
+                format="s16p",
+                layout=layout_str,
+                rate=rate,
+            )
+
+            for frame in in_container.decode(in_stream):
+                for resampled_frame in resampler.resample(frame):
+                    for packet in out_stream.encode(resampled_frame):
+                        out_container.mux(packet)
+
+            # Flush resampler
+            for resampled_frame in resampler.resample(None):
+                for packet in out_stream.encode(resampled_frame):
+                    out_container.mux(packet)
+
+            # Flush encoder
+            for packet in out_stream.encode(None):
+                out_container.mux(packet)
+
     async def _convert_aac_file(self, src_aac: Path, dst_file: Path):
-        """Asynchronously uses FFmpeg to containerize into M4A or transcode into MP3."""
-        if self.output_format == "m4a":
-            # Lossless remuxing: copies raw AAC bitstream into MP4 container
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                str(src_aac),
-                "-c:a",
-                "copy",
-                str(dst_file),
-            ]
-        elif self.output_format == "mp3":
-            # Transcodes AAC to high quality VBR MP3 (~190-250 kbps)
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                str(src_aac),
-                "-c:a",
-                "libmp3lame",
-                "-q:a",
-                "2",
-                str(dst_file),
-            ]
-        else:
-            # Output format is already raw 'aac'
-            src_aac.replace(dst_file)
-            return
-
-        # Execute FFmpeg without blocking the asyncio loop
-        proc = await asyncio.create_subprocess_exec(*cmd)
-        await proc.wait()
-
-        # Delete the temporary .aac file after conversion succeeds
-        if src_aac.exists():
-            src_aac.unlink()
+        try:
+            if self.output_format == "m4a":
+                await asyncio.to_thread(self._pyav_remux_aac_to_m4a, src_aac, dst_file)
+            elif self.output_format == "mp3":
+                await asyncio.to_thread(
+                    self._pyav_transcode_aac_to_mp3, src_aac, dst_file
+                )
+            else:
+                # Format is raw 'aac'
+                src_aac.replace(dst_file)
+        finally:
+            if src_aac.exists():
+                src_aac.unlink()
 
     async def _close_outfile(self):
         if self._out_file is not None:
@@ -366,7 +416,7 @@ class AACStreamProcessor:
         key,
         data_folder: str,
         queue: multiprocessing.Queue,
-        output_format: str = "m4a",
+        output_format: str = "mp3",
     ):
         """Start multiple streams generator with specified output format ('m4a' or 'mp3')."""
         station, _ = await Station.get_or_create(

@@ -3,7 +3,6 @@ import collections
 import hashlib
 import logging
 import multiprocessing
-import re
 from datetime import datetime
 from pathlib import Path
 

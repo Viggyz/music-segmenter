@@ -31,7 +31,6 @@ class ValidateExtension(Validator):
                 f"Unsupported file extension. Allowed: {self.allowed_extensions}"
             )
 
-
 class StreamClip(models.Model):
     id = fields.IntField(pk=True)
     station_id = fields.ForeignKeyField(
@@ -40,7 +39,7 @@ class StreamClip(models.Model):
 
     # where the clip is stored.
     file_path = fields.CharField(
-        max_length=1024, validators=[ValidateExtension([".mp3", ".aac"])]
+        max_length=1024, validators=[ValidateExtension([".mp3", ".aac", ".m4a"])]
     )
 
     # raw stream title
