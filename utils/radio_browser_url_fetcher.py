@@ -56,7 +56,7 @@ LOOKUP_STATIONS = [
     "Radio Paradise Rock Mix 320k AAC",
     "West Coast – G-Funk & Hip-Hop",
     "Zeppelin 106.7",
-    "KISS - The Best Vibes & Energy",
+    "KISS - The Best Vibes & Energy", # has Title - Artist format
     "SLAM!",
     # ".977 The Mix",
     "Radio RMF MAXXX",
@@ -70,7 +70,7 @@ LOOKUP_STATIONS = [
     "Radio Paradise Main Mix 128 AAC",
     # "Radio 105 - Dance 90", Wierd output
     # "Hits 1 Algérie", # Duplicate of other Hits 1
-    "Jazz Radio Funk",
+    "Jazz Radio Funk", # also has the Title - Artist format.
     "Heart UK", # Dupe of Heart
     "Capital Dance",
     "Skyrock",

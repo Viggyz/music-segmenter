@@ -53,7 +53,7 @@ def search_musicbrainz(artist, title):
 
 def process_queries_to_csv(queries, output_filename="musicbrainzngs_resolved_logs.csv"):
     """Processes tracks via musicbrainzngs library and writes results to CSV"""
-    fieldnames = ["input_artist", "input_title",
+    fieldnames = ["station_name", "input_artist", "input_title",
                   "source", "resolved_artist", "resolved_title"]
 
     print(
@@ -76,6 +76,7 @@ def process_queries_to_csv(queries, output_filename="musicbrainzngs_resolved_log
 
             # Write row to CSV
             writer.writerow({
+                "station_name": query.get("station_name"),
                 "input_artist": artist,
                 "input_title": title,
                 "source": resolved["source"],
@@ -115,7 +116,8 @@ def preprocess_queries_from_parsed_artists(input_file):
         seen.add(tup)
         yield {
             "artist": entry['artist'],
-            "title": entry['title']
+            "title": entry['title'],
+            "station_name": entry['station_name']
         }
 
 
